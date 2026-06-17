@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+pydantic
+geopandas
+shapely
+pyproj
+scikit-learn
+pandas
+numpy
+joblib
+python-multipart
