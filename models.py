@@ -29,6 +29,7 @@ class DeploymentModel(BaseModel):
     barricades: int
     cranes: int
     diversion_route: str
+    diversion_geometry: Optional[Any] = None
 
 class ForecastResponse(BaseModel):
     event_id: str

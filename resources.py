@@ -3,9 +3,10 @@ def calculate_resources(
     priority: str,
     event_cause: str,
     requires_road_closure: bool,
+    corridor: str,
 ) -> dict:
-    """
-    Rule-based expert system.
+    """Rule-based expert system.
+
     Takes ML prediction + event metadata → deployment recommendation.
     """
 
@@ -68,7 +69,7 @@ def calculate_resources(
     else:
         severity = "LOW"
 
-    # --- Simple diversion text (Day 4 will replace with OSRM) ---
+    # --- Simple diversion text (Day 4 baseline fallback) ---
     diversion_map = {
         "Mysore Road": "Divert via Kanakapura Road",
         "Tumkur Road": "Divert via Magadi Road",
@@ -80,7 +81,8 @@ def calculate_resources(
         "ORR East 1": "Divert via Old Madras Road",
         "Non-corridor": "Follow police directions",
     }
-    diversion = diversion_map.get(event_cause, "Follow local traffic police directions")
+    # FIXED: Querying using corridor instead of event_cause to avoid broken defaults
+    diversion = diversion_map.get(corridor, "Follow local traffic police directions")
 
     return {
         "traffic_cops_needed": cops,
