@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, Any
 
 class LocationModel(BaseModel):
@@ -12,13 +12,10 @@ class EventRequest(BaseModel):
     priority: str
     corridor: str
     requires_road_closure: bool = Field(..., alias="requiresRoadClosure")
-    police_station: str = Field(..., alias="policeStation")
+    police_station: Optional[str] = Field("AUTO_ASSIGNED", alias="policeStation")
     location: LocationModel
-    hour: Optional[int] = None
-    dayofweek: Optional[int] = None
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 class PredictionsModel(BaseModel):
     estimated_duration_mins: float

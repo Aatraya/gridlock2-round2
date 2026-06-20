@@ -97,7 +97,7 @@ def calculate_resources(
     elif duration_mins > 120 or priority == "High":
         severity = "HIGH"
     elif duration_mins > 60:
-        severity = "MEDIUM"
+        severity = "MODERATE"
     else:
         severity = "LOW"
 

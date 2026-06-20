@@ -1,6 +1,6 @@
 import uuid
-from datetime import datetime
-from fastapi import FastAPI
+from datetime import datetime, timezone
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.geo import (
@@ -55,7 +55,7 @@ def forecast_event(event: EventRequest):
     geospatial bypass geometry lines.
     """
     # 1. Format a standardized UTC timestamp string to match training configurations
-    current_time_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    current_time_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
     # 2. Build the precise attribute dictionary schema required by predict.py
     ml_input_payload = {
@@ -66,29 +66,25 @@ def forecast_event(event: EventRequest):
         "priority": event.priority,
     }
 
-    real_station_name = get_responding_station(
-        event.location.lat, event.location.lng
-    )
+    real_station_name = get_responding_station(event.location.lat, event.location.lng)
 
-    # 3. Compute CatBoost clearance estimations and determine core rules numbers,
-    #    constrained by the responding station's jurisdiction capacity
-    ml_output = ml_engine.predict_and_allocate(
-        input_data=ml_input_payload,
-        requires_road_closure=event.requires_road_closure,
-        police_station=real_station_name,
-    )
+    # 3. Compute CatBoost clearance estimations and determine core rules numbers, constrained by the responding station's jurisdiction capacity
+    try:
+        ml_output = ml_engine.predict_and_allocate(
+            input_data=ml_input_payload,
+            requires_road_closure=event.requires_road_closure,
+            police_station=real_station_name,  # Passes real station to capacity math
+        )
+    except Exception as e:
+        print(f"ML Engine Failure: {e}")
+        raise HTTPException(
+            status_code=503, detail="Forecast engine temporarily unavailable."
+        )
     predicted_duration = ml_output["predicted_duration_minutes"]
     allocated_resources = ml_output["allocated_resources"]
 
-    # 4. Map the continuous duration predictions into discrete priority alert levels
-    if predicted_duration > 120 and event.priority == "High":
-        severity = "CRITICAL"
-    elif predicted_duration > 90 or event.priority == "High":
-        severity = "HIGH"
-    elif predicted_duration > 45:
-        severity = "MEDIUM"
-    else:
-        severity = "LOW"
+    # 4. Pull severity from resources.py, default to MODERATE
+    severity = allocated_resources.get("severity", "MODERATE")
 
     # 5. Calculate spatial buffer impacts using proper geometric map projection metrics
     radius = get_impact_radius_meters(event.event_cause, event.requires_road_closure)
@@ -98,7 +94,7 @@ def forecast_event(event: EventRequest):
     route_text, route_geom = get_osrm_alternative_route(
         lat=event.location.lat,
         lng=event.location.lng,
-        radius_meters=radius,  
+        radius_meters=radius,
     )
 
     # 7. Package everything into the verified structure contract to send to the UI

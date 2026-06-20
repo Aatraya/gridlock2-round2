@@ -3,53 +3,54 @@ from shapely.ops import transform
 import pyproj
 import requests
 import geopandas as gpd
-from shapely.geometry import Point
 import fiona
 import pandas as pd
 import os
 
 # Explicitly enable both standard and extended KML drivers
-fiona.drvsupport.supported_drivers['KML'] = 'rw'
-fiona.drvsupport.supported_drivers['LIBKML'] = 'rw'
+fiona.drvsupport.supported_drivers["KML"] = "rw"
+fiona.drvsupport.supported_drivers["LIBKML"] = "rw"
 
 # Get the absolute path of the root directory (one level up from app/)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-KML_PATH = os.path.join(BASE_DIR, 'blr_police.kml')
+KML_PATH = os.path.join(BASE_DIR, "blr_police.kml")
 
 # Load the file once at startup
 try:
     # Ensure the file is renamed to this exact string on the server
-    JURISDICTIONS_GDF = gpd.read_file(KML_PATH, driver='KML')
+    JURISDICTIONS_GDF = gpd.read_file(KML_PATH, driver="KML")
     print(f"SUCCESS: Loaded {len(JURISDICTIONS_GDF)} Police Jurisdictions.")
     print(f"Available KML Columns: {JURISDICTIONS_GDF.columns.tolist()}")
 except Exception as e:
     print(f"CRITICAL WARNING: KML File failed to load! Error: {e}")
     JURISDICTIONS_GDF = None
 
+
 def get_responding_station(lat: float, lng: float) -> str:
     """
     Performs a Point-in-Polygon spatial join to find the exact legal jurisdiction.
     """
     if JURISDICTIONS_GDF is None or JURISDICTIONS_GDF.empty:
-        return "Nearest Available Station" # Fallback if file failed to load
-        
+        return "Nearest Available Station"  # Fallback if file failed to load
+
     incident_point = Point(lng, lat)
-    
+
     # Iterate through the polygons to find the coordinate match
     for idx, row in JURISDICTIONS_GDF.iterrows():
-        if row['geometry'].contains(incident_point):
-            
+        if row["geometry"].contains(incident_point):
+
             # Check for the custom BTP schema attribute first
-            if 'PS_BOUNDName' in row and pd.notna(row['PS_BOUNDName']):
-                return str(row['PS_BOUNDName']).title() + " Traffic PS"
-                
+            if "PS_BOUNDName" in row and pd.notna(row["PS_BOUNDName"]):
+                return str(row["PS_BOUNDName"]).title() + " Traffic PS"
+
             # Fallback to standard KML Name tag
-            if 'Name' in row and pd.notna(row['Name']):
-                return str(row['Name']).title() + " Traffic PS"
-                
+            if "Name" in row and pd.notna(row["Name"]):
+                return str(row["Name"]).title() + " Traffic PS"
+
             return "Local Traffic Station"
-            
+
     return "Out of Jurisdiction / Highway Patrol"
+
 
 def get_impact_radius_meters(event_cause: str, requires_road_closure: bool) -> float:
     radius_map = {
@@ -90,9 +91,6 @@ def create_impact_geojson(lat: float, lng: float, radius_meters: float) -> dict:
     circle_wgs84 = transform(to_wgs84.transform, circle_local)
 
     return mapping(circle_wgs84)
-
-
-import requests
 
 
 def get_osrm_alternative_route(
