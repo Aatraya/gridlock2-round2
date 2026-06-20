@@ -48,13 +48,14 @@ def forecast_event(event: EventRequest):
     """Primary orchestrator endpoint.
 
     Accepts real-time incident notifications, runs predictive model
-    forecasting, handles expert resource allocations, and generates dynamic
+    forecasting, handles expert resource allocations constrained by the
+    responding station's jurisdiction capacity, and generates dynamic
     geospatial bypass geometry lines.
     """
     # 1. Format a standardized UTC timestamp string to match training configurations
     current_time_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
-    # 2. Build the precise 5-attribute dictionary schema required by predict.py
+    # 2. Build the precise attribute dictionary schema required by predict.py
     ml_input_payload = {
         "start_datetime": current_time_str,
         "event_type": event.event_type,
@@ -63,10 +64,12 @@ def forecast_event(event: EventRequest):
         "priority": event.priority,
     }
 
-    # 3. Compute CatBoost clearance estimations and determine core rules numbers
+    # 3. Compute CatBoost clearance estimations and determine core rules numbers,
+    #    constrained by the responding station's jurisdiction capacity
     ml_output = ml_engine.predict_and_allocate(
         input_data=ml_input_payload,
         requires_road_closure=event.requires_road_closure,
+        police_station=event.police_station,
     )
     predicted_duration = ml_output["predicted_duration_minutes"]
     allocated_resources = ml_output["allocated_resources"]
@@ -112,6 +115,11 @@ def forecast_event(event: EventRequest):
             cranes=allocated_resources["cranes"],
             diversion_route=allocated_resources["diversion_route"],
             diversion_geometry=route_geom,
+            total_cops_required=allocated_resources["total_cops_required"],
+            total_barricades_required=allocated_resources["total_barricades_required"],
+            total_cranes_required=allocated_resources["total_cranes_required"],
+            needs_backup=allocated_resources["needs_backup"],
+            responding_station=allocated_resources["responding_station"],
         ),
         spatial_impact_geojson=geojson_data,
     )

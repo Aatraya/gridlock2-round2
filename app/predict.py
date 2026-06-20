@@ -37,12 +37,16 @@ class ProductionPredictor:
             self.models = []
 
     def predict_and_allocate(
-        self, input_data: dict, requires_road_closure: bool = False
+        self,
+        input_data: dict,
+        requires_road_closure: bool = False,
+        police_station: str = "Unknown",
     ) -> dict:
         """Runs incoming request logs through the CatBoost model architecture
 
         and couples predictions directly to the unified expert allocation
-        engine.
+        engine, constrained by the responding station's jurisdiction
+        capacity.
         """
         if not self.models:
             fallback_duration = (
@@ -56,6 +60,7 @@ class ProductionPredictor:
                     event_cause=input_data.get("event_cause", "unknown"),
                     requires_road_closure=requires_road_closure,
                     corridor=input_data.get("corridor", "Non-corridor"),
+                    police_station=police_station,
                 ),
             }
 
@@ -103,13 +108,15 @@ class ProductionPredictor:
         predicted_duration = float(np.expm1(log_preds)[0])
         predicted_duration = max(0.0, predicted_duration)
 
-        # 6. Allocate resource parameters using the centralized rule-engine script
+        # 6. Allocate resource parameters using the centralized rule-engine script,
+        #    constrained to the responding station's jurisdiction capacity
         allocated_resources = calculate_resources(
             duration_mins=predicted_duration,
             priority=str(input_data.get("priority", "Medium")),
             event_cause=str(input_data.get("event_cause", "unknown")),
             requires_road_closure=requires_road_closure,
             corridor=str(input_data.get("corridor", "Non-corridor")),
+            police_station=police_station,
         )
 
         return {
