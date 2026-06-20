@@ -30,7 +30,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -66,12 +66,16 @@ def forecast_event(event: EventRequest):
         "priority": event.priority,
     }
 
+    real_station_name = get_responding_station(
+        event.location.lat, event.location.lng
+    )
+
     # 3. Compute CatBoost clearance estimations and determine core rules numbers,
     #    constrained by the responding station's jurisdiction capacity
     ml_output = ml_engine.predict_and_allocate(
         input_data=ml_input_payload,
         requires_road_closure=event.requires_road_closure,
-        police_station=event.police_station,
+        police_station=real_station_name,
     )
     predicted_duration = ml_output["predicted_duration_minutes"]
     allocated_resources = ml_output["allocated_resources"]
@@ -91,12 +95,10 @@ def forecast_event(event: EventRequest):
     geojson_data = create_impact_geojson(event.location.lat, event.location.lng, radius)
 
     # 6. DYNAMIC OSRM ROUTING LAYER
-    # Queries the live Open Source Routing Machine engine to compute a real
-    # path around the incident bottleneck instead of using static lookups.
     route_text, route_geom = get_osrm_alternative_route(
         lat=event.location.lat,
         lng=event.location.lng,
-        radius_meters=radius,  # Pass the calculated radius
+        radius_meters=radius,  
     )
 
     # 7. Package everything into the verified structure contract to send to the UI
@@ -117,9 +119,7 @@ def forecast_event(event: EventRequest):
             total_barricades_required=allocated_resources["total_barricades_required"],
             total_cranes_required=allocated_resources["total_cranes_required"],
             needs_backup=allocated_resources["needs_backup"],
-            responding_station=get_responding_station(
-                event.location.lat, event.location.lng
-            ),
+            responding_station=real_station_name,
         ),
         spatial_impact_geojson=geojson_data,
     )

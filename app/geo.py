@@ -6,15 +6,20 @@ import geopandas as gpd
 from shapely.geometry import Point
 import fiona
 import pandas as pd
+import os
 
 # Explicitly enable both standard and extended KML drivers
 fiona.drvsupport.supported_drivers['KML'] = 'rw'
 fiona.drvsupport.supported_drivers['LIBKML'] = 'rw'
 
+# Get the absolute path of the root directory (one level up from app/)
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+KML_PATH = os.path.join(BASE_DIR, 'blr_police.kml')
+
 # Load the file once at startup
 try:
     # Ensure the file is renamed to this exact string on the server
-    JURISDICTIONS_GDF = gpd.read_file('blr_police.kml', driver='KML')
+    JURISDICTIONS_GDF = gpd.read_file(KML_PATH, driver='KML')
     print(f"SUCCESS: Loaded {len(JURISDICTIONS_GDF)} Police Jurisdictions.")
     print(f"Available KML Columns: {JURISDICTIONS_GDF.columns.tolist()}")
 except Exception as e:

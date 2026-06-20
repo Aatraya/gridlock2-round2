@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import pickle
 import catboost
+import os
 
 # Import the single source of truth for resource rules
 from app.resources import calculate_resources
@@ -10,10 +11,13 @@ from app.resources import calculate_resources
 class ProductionPredictor:
 
     def __init__(self, model_pipeline_path="catboost_ensemble.pkl"):
+        BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        absolute_model_path = os.path.join(BASE_DIR, model_pipeline_path)
+
         self.models = []
         self.feature_order = None
         try:
-            with open(model_pipeline_path, "rb") as f:
+            with open(absolute_model_path, "rb") as f:
                 loaded_data = pickle.load(f)
                 if isinstance(loaded_data, dict) and "models" in loaded_data:
                     self.models = loaded_data["models"]
