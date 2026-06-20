@@ -11,17 +11,26 @@ class ProductionPredictor:
 
     def __init__(self, model_pipeline_path="catboost_ensemble.pkl"):
         self.models = []
+        self.feature_order = None
         try:
             with open(model_pipeline_path, "rb") as f:
                 loaded_data = pickle.load(f)
                 if isinstance(loaded_data, dict) and "models" in loaded_data:
                     self.models = loaded_data["models"]
+                    # Use the EXACT feature order/list the model was trained on
+                    self.feature_order = loaded_data.get("features")
                 elif isinstance(loaded_data, list):
                     self.models = loaded_data
                 else:
                     self.models = [loaded_data]
+
+            # Fallback: pull feature order directly from the model itself
+            if not self.feature_order and self.models:
+                self.feature_order = self.models[0].feature_names_
+
             print(
-                f"Successfully loaded {len(self.models)} CatBoost ensemble iterations."
+                f"Successfully loaded {len(self.models)} CatBoost ensemble "
+                f"iterations. Expected features: {self.feature_order}"
             )
         except Exception as e:
             print(f"Critical Error: Model pipeline failed to load: {e}")
@@ -59,28 +68,24 @@ class ProductionPredictor:
             hour_val = 12
             day_val = 0
 
-        # 2. Reconstruct the exact feature column schema alignment the model demands
-        X_live = pd.DataFrame(
-            [
-                {
-                    "event_type": str(input_data.get("event_type", "unplanned")),
-                    "event_cause": str(
-                        input_data.get("event_cause", "unknown")
-                    ),
-                    "corridor": str(input_data.get("corridor", "Non-corridor")),
-                    "hour_of_day": hour_val,
-                    "day_of_week": day_val,
-                    "priority": str(input_data.get("priority", "Low")),
-                }
-            ]
-        )
+        # 2. Build ONLY the features the model was actually trained on.
+        #    event_type is intentionally excluded - it was never part of
+        #    training (confirmed via payload['features']).
+        full_row = {
+            "event_cause": str(input_data.get("event_cause", "unknown")),
+            "corridor": str(input_data.get("corridor", "Non-corridor")),
+            "priority": str(input_data.get("priority", "Low")),
+            "hour_of_day": hour_val,
+            "day_of_week": day_val,
+        }
+
+        # Use the model's own training order to be 100% safe
+        ordered_cols = self.feature_order or list(full_row.keys())
+        X_live = pd.DataFrame([{col: full_row[col] for col in ordered_cols}])
 
         # 3. Direct CatBoost to treat text features as string categories explicitly
         categorical_features = [
-            "event_type",
-            "event_cause",
-            "corridor",
-            "priority",
+            c for c in ["event_cause", "corridor", "priority"] if c in ordered_cols
         ]
         for col in categorical_features:
             X_live[col] = X_live[col].astype(str)
