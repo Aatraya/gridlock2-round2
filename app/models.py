@@ -30,6 +30,12 @@ class DeploymentModel(BaseModel):
     cranes: int
     diversion_route: str
     diversion_geometry: Optional[Any] = None
+    # ── Jurisdiction capacity fields ──────────────────────────────────────
+    total_cops_required: int = 0
+    total_barricades_required: int = 0
+    total_cranes_required: int = 0
+    needs_backup: bool = False
+    responding_station: str = "Unknown"
 
 class ForecastResponse(BaseModel):
     event_id: str
