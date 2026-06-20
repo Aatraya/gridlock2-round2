@@ -9,3 +9,5 @@ pandas
 numpy
 joblib
 python-multipart
+requests
+catboost
