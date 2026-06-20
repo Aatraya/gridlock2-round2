@@ -7,7 +7,9 @@ from app.geo import (
     create_impact_geojson,
     get_impact_radius_meters,
     get_osrm_alternative_route,
+    get_responding_station,
 )
+
 # Import schemas and models directly from models.py
 from app.models import (
     DeploymentModel,
@@ -85,20 +87,16 @@ def forecast_event(event: EventRequest):
         severity = "LOW"
 
     # 5. Calculate spatial buffer impacts using proper geometric map projection metrics
-    radius = get_impact_radius_meters(
-        event.event_cause, event.requires_road_closure
-    )
-    geojson_data = create_impact_geojson(
-        event.location.lat, event.location.lng, radius
-    )
+    radius = get_impact_radius_meters(event.event_cause, event.requires_road_closure)
+    geojson_data = create_impact_geojson(event.location.lat, event.location.lng, radius)
 
     # 6. DYNAMIC OSRM ROUTING LAYER
     # Queries the live Open Source Routing Machine engine to compute a real
     # path around the incident bottleneck instead of using static lookups.
     route_text, route_geom = get_osrm_alternative_route(
-        start_lat=event.location.lat,
-        start_lng=event.location.lng,
-        corridor=event.corridor,
+        lat=event.location.lat,
+        lng=event.location.lng,
+        radius_meters=radius,  # Pass the calculated radius
     )
 
     # 7. Package everything into the verified structure contract to send to the UI
@@ -113,13 +111,15 @@ def forecast_event(event: EventRequest):
             traffic_cops_needed=allocated_resources["traffic_cops_needed"],
             barricades=allocated_resources["barricades"],
             cranes=allocated_resources["cranes"],
-            diversion_route=allocated_resources["diversion_route"],
+            diversion_route=route_text,
             diversion_geometry=route_geom,
             total_cops_required=allocated_resources["total_cops_required"],
             total_barricades_required=allocated_resources["total_barricades_required"],
             total_cranes_required=allocated_resources["total_cranes_required"],
             needs_backup=allocated_resources["needs_backup"],
-            responding_station=allocated_resources["responding_station"],
+            responding_station=get_responding_station(
+                event.location.lat, event.location.lng
+            ),
         ),
         spatial_impact_geojson=geojson_data,
     )

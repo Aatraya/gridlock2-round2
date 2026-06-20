@@ -11,3 +11,4 @@ joblib
 python-multipart
 requests
 catboost
+fiona
