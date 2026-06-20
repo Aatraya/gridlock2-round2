@@ -5,19 +5,19 @@ import requests
 
 def get_impact_radius_meters(event_cause: str, requires_road_closure: bool) -> float:
     radius_map = {
-        "construction": 1500,
-        "water_logging": 1200,
-        "tree_fall": 800,
-        "accident": 800,
-        "road_conditions": 1000,
-        "pot_holes": 600,
-        "congestion": 1000,
-        "public_event": 2000,
-        "procession": 1500,
-        "protest": 1500,
-        "vip_movement": 1200,
-        "vehicle_breakdown": 500,
-        "others": 600,
+        "construction": 400,       # Blocks 1-2 intersections
+        "water_logging": 500,      # E.g., Silk Board underpass flooding
+        "tree_fall": 150,          # Localized to one stretch/signal
+        "accident": 250,           # Rubbernecking + lane blockage
+        "road_conditions": 300,    # Ongoing slow-downs
+        "pot_holes": 50,           # Highly localized speed bump effect
+        "congestion": 800,         # Heavy rolling queues (e.g., Hebbal)
+        "public_event": 1000,      # Chinnaswamy stadium matches
+        "procession": 600,         # Moving blockages
+        "protest": 600,            # Freedom park standard radius
+        "vip_movement": 1000,      # VIP rolling blocks affect large grids
+        "vehicle_breakdown": 100,  # 1 lane blocked
+        "others": 200,
     }
     radius = radius_map.get(event_cause, 600)
     if requires_road_closure:
