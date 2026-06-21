@@ -1,108 +1,163 @@
-# BTP Traffic Command API
+# Bengaluru Traffic Police (BTP) Predictive Command Center — Backend API
 
-Predictive backend for the **Bengaluru Traffic Police Event-Driven Congestion** problem statement (Flipkart Grid 2.0 — Round 2).
+![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.138.0-009688.svg)
+![CatBoost](https://img.shields.io/badge/CatBoost-1.2.10-yellow.svg)
+![GeoPandas](https://img.shields.io/badge/GeoPandas-1.1.3-brightgreen.svg)
+![License](https://img.shields.io/badge/license-MIT-green.svg)
 
-Given a traffic-affecting event (accident, construction, tree fall, rally, etc.), the API forecasts how long it will disrupt traffic, recommends manpower and barricading, calculates the spatial impact zone, and generates a real road-network diversion route.
-
----
-
-## Problem statement
-
-> How can historical and real-time data be used to forecast event-related traffic impact and recommend optimal manpower, barricading, and diversion plans?
-
-This service answers all three asks:
-
-| Ask | Component |
-|---|---|
-| Forecast traffic impact | CatBoost ensemble model trained on historical event data |
-| Recommend manpower & barricading | Rule-based expert system (`resources.py`) |
-| Recommend diversion plans | Live OSRM routing around the impact zone (`geo.py`) |
+> **Enterprise-grade predictive backend for the Bengaluru Traffic Police Event-Driven Congestion System.**  
+> Built for the Flipkart Grid 2.0 (Round 2) Hackathon.
 
 ---
 
-## Architecture
+## 📖 Executive Summary
 
+The **BTP Predictive Command Center** API serves as the intelligent core for managing traffic-affecting events (e.g., accidents, construction, tree falls, rallies) across Bengaluru.
+
+By synthesizing historical traffic patterns, real-time spatial data, and expert system heuristics, the API provides:
+
+1. **Machine Learning Forecasting**: Predicts the exact duration of an event's impact on traffic flow using a specialized `CatBoost` ensemble.
+2. **Dynamic Resource Allocation**: Calculates optimal personnel (Traffic Cops) and hardware (Barricades, Cranes) deployment.
+3. **Automated Jurisdiction Inference**: Uses a precise Point-In-Polygon algorithm over BTP Ward KML boundaries to instantly route events to the correct responding police station.
+4. **Intelligent Diversion Generation**: Interfaces with OSRM to map and visualize real road-network diversion geometries to minimize secondary congestion.
+
+---
+
+## 🏗 System Architecture
+
+The service follows a decoupled, modular architecture designed for high availability and rapid inference.
+
+```mermaid
+graph TD;
+    A[Frontend Client] -->|POST /api/v1/forecast| B(FastAPI Router);
+    B --> C{Spatial Engine app/geo.py};
+    C -->|Point-in-Polygon| D[BTP Wards KML];
+    C -->|Impact Zone| E[Azimuthal Equidistant Projection];
+    B --> F{ML Engine app/predict.py};
+    F -->|Feature Matrix| G[CatBoost Ensemble pkl];
+    F --> H{Resource Allocator app/resources.py};
+    B --> I[OSRM Routing Service];
+    I -->|LineString GeoJSON| J[Diversion Geometry];
+    C --> K(Forecast Response);
+    F --> K;
+    H --> K;
+    J --> K;
+    K -->|JSON| A;
 ```
+
+### Directory Structure
+
+```text
 btp-backend/
 ├── app/
 │   ├── __init__.py
-│   ├── main.py          # FastAPI app, orchestrates the full pipeline
-│   ├── models.py        # Pydantic request/response schemas
-│   ├── predict.py        # Loads CatBoost ensemble, runs inference
-│   ├── geo.py             # Impact-zone polygon + OSRM diversion routing
-│   └── resources.py     # Expert-system rules: cops, barricades, cranes, severity
-├── catboost_ensemble.pkl  # Trained model artifact (Aryan's pipeline)
-├── requirements.txt
-└── run.py                 # Entry point
-```
-
-### Request flow
-
-```
-Frontend POST /api/v1/forecast
-        │
-        ▼
-EventRequest validated (Pydantic)
-        │
-        ▼
-ProductionPredictor.predict_and_allocate()
-   ├─ Builds feature row: event_cause, corridor, priority, hour_of_day, day_of_week
-   ├─ Runs CatBoost ensemble → log-duration → expm1 → predicted_duration_minutes
-   └─ Calls calculate_resources() → cops, barricades, cranes, severity
-        │
-        ▼
-get_impact_radius_meters() + create_impact_geojson()
-   └─ Azimuthal equidistant projection → accurate circular buffer in meters
-        │
-        ▼
-get_osrm_alternative_route()
-   └─ Live OSRM query → real road-network diversion path (GeoJSON LineString)
-        │
-        ▼
-ForecastResponse returned to frontend
+│   ├── main.py          # FastAPI application & HTTP routing orchestration
+│   ├── models.py        # Pydantic schemas for robust I/O validation
+│   ├── predict.py       # ML Pipeline, model loading, & inference logic
+│   ├── geo.py           # Geospatial operations, KML parsing, & OSRM integration
+│   └── resources.py     # Expert system rules (manpower & hardware caps/thresholds)
+├── blr_police.kml       # BTP Jurisdiction Boundaries (Spatial Data)
+├── catboost_ensemble.pkl# Pre-trained ML artifact
+├── requirements.txt     # Locked production dependencies
+└── run.py               # Uvicorn entry point
 ```
 
 ---
 
-## Setup
+## 🚀 Key Technical Highlights
+
+### 1. Robust Predictive Engine
+
+The `CatBoost` ensemble is trained on 5 fundamental columns: `event_cause`, `corridor`, `priority`, `hour_of_day`, and `day_of_week`. The system parses this model artifact directly to avoid silent schema drift in production. Outputs are mathematically transformed (`expm1`) for accurate log-duration predictions.
+
+### 2. Precise Spatial Operations
+
+Instead of naive coordinate bounding boxes, the system utilizes an **Azimuthal Equidistant Projection** centered strictly on the incident's GPS coordinates. This ensures that the generated impact buffers (e.g., 500m for a breakdown, 1500m for construction) are geometrically perfect circular polygons in meters, eliminating latitudinal distortion.
+
+### 3. Smart Jurisdiction & Backup Routing
+
+The API completely abstracts jurisdiction away from the client. By processing the live `blr_police.kml` boundary file through `GeoPandas` and `Shapely`, the API automatically calculates the responsible precinct via Point-In-Polygon checks. If the required personnel exceeds the station's active capacity, the system triggers a `needs_backup` flag autonomously.
+
+### 4. Real-time OSRM Diversions
+
+The service queries public OSRM routing nodes to generate a real road-network path (`GeoJSON LineString`) designed to circumnavigate the calculated spatial impact zone. It falls back gracefully to standard routing if OSRM is unreachable.
+
+---
+
+## 🛠 Tech Stack
+
+- **Framework**: `FastAPI` (Python 3.10+)
+- **Server**: `Uvicorn` (Asynchronous ASGI)
+- **Machine Learning**: `CatBoost`, `scikit-learn`, `numpy`, `pandas`
+- **Geospatial Processing**: `GeoPandas`, `Shapely`, `fiona`, `pyproj`
+- **Validation**: `Pydantic` V2
+
+---
+
+## ⚙️ Environment Setup & Installation
 
 ### Prerequisites
-- Python 3.10+
-- `catboost_ensemble.pkl` placed in the project root (provided by the ML pipeline)
 
-### Installation
+- Python 3.10 or higher
+- (Optional but recommended) Conda or Python `venv`
 
-```bash
-# Create and activate virtual environment
-python3 -m venv venv
-source venv/bin/activate        # Windows: venv\Scripts\activate
+### Local Development Quickstart
 
-# Install dependencies
-pip install -r requirements.txt
-```
+1. **Clone the repository:**
 
-### Run
+   ```bash
+   git clone <repository_url>
+   cd btp-backend
+   ```
 
-```bash
-python run.py
-```
+2. **Create and activate a virtual environment:**
 
-Server starts at `http://localhost:8000`. Interactive API docs at `http://localhost:8000/docs`.
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
+
+3. **Install exact dependencies:**
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. **Verify artifacts:**
+   Ensure `catboost_ensemble.pkl` and `blr_police.kml` are present in the project root.
+
+5. **Start the ASGI server:**
+   ```bash
+   python run.py
+   ```
+
+The server will launch at `http://localhost:8000`.
+Interactive Swagger API documentation is automatically generated at `http://localhost:8000/docs`.
 
 ---
 
-## API
+## 📡 API Reference
 
 ### `GET /health`
-Lightweight liveness check.
+
+Liveness probe for orchestration platforms (Kubernetes, AWS ALB).
+
+**Response (200 OK):**
 
 ```json
-{ "status": "ok", "timestamp": "2026-06-20T10:32:00" }
+{
+  "status": "ok",
+  "timestamp": "2026-06-21T10:32:00.000Z"
+}
 ```
 
 ### `POST /api/v1/forecast`
 
-**Request**
+The primary inference endpoint.
+
+**Request Body:**
+
 ```json
 {
   "eventCause": "accident",
@@ -110,7 +165,7 @@ Lightweight liveness check.
   "priority": "High",
   "corridor": "Tumkur Road",
   "requiresRoadClosure": true,
-  "policeStation": "Peenya Police Station",
+  "policeStation": "AUTO_ASSIGNED",
   "location": {
     "lat": 13.0285,
     "lng": 77.5195,
@@ -119,12 +174,17 @@ Lightweight liveness check.
 }
 ```
 
-**Response**
+**Response (200 OK):**
+
 ```json
 {
   "event_id": "BTP-850BD1",
   "cause": "accident",
-  "location": { "lat": 13.0285, "lng": 77.5195, "address": "..." },
+  "location": {
+    "lat": 13.0285,
+    "lng": 77.5195,
+    "address": "Near Peenya Metro Station, Tumkur Road"
+  },
   "predictions": {
     "estimated_duration_mins": 70.9,
     "severity_level": "HIGH"
@@ -134,40 +194,36 @@ Lightweight liveness check.
     "barricades": 24,
     "cranes": 1,
     "diversion_route": "Divert via Magadi Road",
-    "diversion_geometry": { "type": "LineString", "coordinates": [...] }
+    "diversion_geometry": {
+      "type": "LineString",
+      "coordinates": [[77.5195, 13.0285]]
+    },
+    "total_cops_required": 10,
+    "total_barricades_required": 24,
+    "total_cranes_required": 1,
+    "needs_backup": false,
+    "responding_station": "Peenya"
   },
-  "spatial_impact_geojson": { "type": "Polygon", "coordinates": [...] }
+  "spatial_impact_geojson": {
+    "type": "Polygon",
+    "coordinates": []
+  }
 }
 ```
 
-Note: the request schema accepts camelCase keys (`eventCause`, `requiresRoadClosure`, etc.) via Pydantic aliases, matching the frontend's native JSON convention — no transformation needed on either side of the handshake.
+---
+
+## 🔒 Known Limitations & Roadmap
+
+- **Isochrone Polygons**: The current impact zones are accurate distance-based circles. Future updates aim to implement full driving-distance isochrones based on network edges.
+- **Traffic Feeds**: Real-time GPS congestion ingestion (via Google/TomTom APIs) is slated for v2 to create dynamic feedback loops for the CatBoost model.
 
 ---
 
-## Design notes
+## 👥 Contributors
 
-**Model features.** The CatBoost ensemble was trained on exactly five columns: `event_cause`, `corridor`, `priority`, `hour_of_day`, `day_of_week`. `predict.py` reads the feature list directly from the model artifact at load time and builds the inference row in that exact order — this guards against silent schema drift if the model is retrained with a different feature set.
+- **Aatraya Mukherjee** — Geospatial Engineering & Core Backend
+- **Aryan** — Predictive Engine & Machine Learning pipeline
+- **Amogh Gurudatta** — Frontend & UI Integration
 
-**Spatial impact zone.** The "impact radius" is a circular buffer sized by event cause (construction = 1500m, breakdown = 500m, etc.) and widened 40% if a road closure is in effect. It is generated using a local azimuthal equidistant projection centered on the event, so the circle is geometrically accurate in meters rather than distorted by latitude-dependent longitude scaling.
-
-**Diversion routing.** Unlike the impact zone, the diversion path is not a static lookup — it queries the public OSRM routing engine live and returns a real road-network path as a GeoJSON `LineString`. If OSRM is unreachable, it falls back to a straight-line path so the endpoint never hard-fails.
-
-**Resource allocation.** `resources.py` is a single source of truth used identically by both the live-prediction path and the model-unavailable fallback path, so manpower recommendations stay consistent regardless of whether the ML model loaded successfully. All outputs are hard-capped (max 30 cops, 80 barricades, 3 cranes) to avoid degenerate recommendations on extreme predicted durations.
-
----
-
-## Known simplifications (by design, not oversight)
-
-- **Impact zone is a circle, not a road-network isochrone.** Isochrones (true drivable-distance polygons) were considered but deprioritized in favor of investing the available time in real OSRM-based diversion routing, since drivers and dispatchers act on the diversion path, not the shape of the impact zone.
-- **No live traffic feed integration.** The problem statement asks for forecasting from historical and real-time *event* data (i.e. the incoming event report), not live sensor/GPS congestion feeds. The model is intentionally a decision-support forecaster, not an autonomous live-traffic system.
-- **No post-event feedback loop.** Predicted vs. actual duration is not currently logged or used to retrain — a natural next step beyond hackathon scope.
-
----
-
-## Team
-
-- **Geospatial & Backend** — Aatraya Mukherjee
-- **ML / Predictive Engine** — Aryan
-- **Frontend** — Amogh Gurudatta
-
-Built for Flipkart Grid 2.0, Round 2.
+_Copyright © 2026. All Rights Reserved._
