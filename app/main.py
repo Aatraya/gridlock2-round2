@@ -47,75 +47,70 @@ def health():
 
 @app.post("/api/v1/forecast", response_model=ForecastResponse)
 def forecast_event(event: EventRequest):
-    """Primary orchestrator endpoint.
-
-    Accepts real-time incident notifications, runs predictive model
-    forecasting, handles expert resource allocations constrained by the
-    responding station's jurisdiction capacity, and generates dynamic
-    geospatial bypass geometry lines.
-    """
-    # 1. Format a standardized UTC timestamp string to match training configurations
-    current_time_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-
-    # 2. Build the precise attribute dictionary schema required by predict.py
-    ml_input_payload = {
-        "start_datetime": current_time_str,
-        "event_type": event.event_type,
-        "event_cause": event.event_cause,
-        "corridor": event.corridor,
-        "priority": event.priority,
-    }
-
-    real_station_name = get_responding_station(event.location.lat, event.location.lng)
-
-    # 3. Compute CatBoost clearance estimations and determine core rules numbers, constrained by the responding station's jurisdiction capacity
+    """Primary orchestrator endpoint."""
     try:
-        ml_output = ml_engine.predict_and_allocate(
-            input_data=ml_input_payload,
-            requires_road_closure=event.requires_road_closure,
-            police_station=real_station_name,  # Passes real station to capacity math
+        # 1. Resolve Jurisdiction via KML if AUTO_ASSIGNED
+        # Using .strip() to clean hidden newlines and spaces from KML raw text
+        if event.police_station == "AUTO_ASSIGNED" or not event.police_station:
+            real_station_name = get_responding_station(event.location.lat, event.location.lng).strip()
+        else:
+            real_station_name = event.police_station.strip()
+
+        # 2. Build model payload map
+        input_payload = {
+            "event_type": event.event_type,
+            "event_cause": event.event_cause,
+            "corridor": event.corridor,
+            "priority": event.priority,
+            "hour_of_day": datetime.now(timezone.utc).hour,
+            "day_of_week": datetime.now(timezone.utc).weekday(),
+            "police_station": real_station_name
+        }
+
+        # 3. RUN PREDICTIVE FRAMEWORK WITH SPATIAL JURISDICTION
+        prediction_results = ml_engine.predict_and_allocate(
+            input_data=input_payload,
+            police_station=real_station_name,  # Passes clean jurisdiction string to rules engine
+            requires_road_closure=event.requires_road_closure
         )
+
+        predicted_duration = prediction_results.get("predicted_duration_mins", 60.0)
+        allocated_resources = prediction_results.get("allocated_resources", {})
+        severity = allocated_resources.get("severity", "MODERATE")
+
+        # 4. Geospatial impact buffer
+        radius = get_impact_radius_meters(event.event_cause, event.requires_road_closure)
+        geojson_data = create_impact_geojson(event.location.lat, event.location.lng, radius)
+
+        # 5. Dynamic OSRM Routing Layer
+        route_text, route_geom = get_osrm_alternative_route(
+            start_lat=event.location.lat,
+            start_lng=event.location.lng,
+            corridor=event.corridor,
+        )
+
+        # 6. Package everything into the verified structure contract
+        return ForecastResponse(
+            event_id=f"BTP-{uuid.uuid4().hex[:6].upper()}",
+            cause=event.event_cause,
+            location=event.location,
+            predictions=PredictionsModel(
+                estimated_duration_mins=predicted_duration, severity_level=severity
+            ),
+            deployment_recommendation=DeploymentModel(
+                traffic_cops_needed=allocated_resources.get("traffic_cops_needed", 0),
+                barricades=allocated_resources.get("barricades", 0),
+                cranes=allocated_resources.get("cranes", 0),
+                diversion_route=route_text,
+                diversion_geometry=route_geom,
+                total_cops_required=allocated_resources.get("total_cops_required", 0),
+                total_barricades_required=allocated_resources.get("total_barricades_required", 0),
+                total_cranes_required=allocated_resources.get("total_cranes_required", 0),
+                needs_backup=allocated_resources.get("needs_backup", False),
+                responding_station=real_station_name,
+            ),
+            spatial_impact_geojson=geojson_data,
+        )
+
     except Exception as e:
-        print(f"ML Engine Failure: {e}")
-        raise HTTPException(
-            status_code=503, detail="Forecast engine temporarily unavailable."
-        )
-    predicted_duration = ml_output["predicted_duration_minutes"]
-    allocated_resources = ml_output["allocated_resources"]
-
-    # 4. Pull severity from resources.py, default to MODERATE
-    severity = allocated_resources.get("severity", "MODERATE")
-
-    # 5. Calculate spatial buffer impacts using proper geometric map projection metrics
-    radius = get_impact_radius_meters(event.event_cause, event.requires_road_closure)
-    geojson_data = create_impact_geojson(event.location.lat, event.location.lng, radius)
-
-    # 6. DYNAMIC OSRM ROUTING LAYER
-    route_text, route_geom = get_osrm_alternative_route(
-        lat=event.location.lat,
-        lng=event.location.lng,
-        radius_meters=radius,
-    )
-
-    # 7. Package everything into the verified structure contract to send to the UI
-    return ForecastResponse(
-        event_id=f"BTP-{uuid.uuid4().hex[:6].upper()}",
-        cause=event.event_cause,
-        location=event.location,
-        predictions=PredictionsModel(
-            estimated_duration_mins=predicted_duration, severity_level=severity
-        ),
-        deployment_recommendation=DeploymentModel(
-            traffic_cops_needed=allocated_resources["traffic_cops_needed"],
-            barricades=allocated_resources["barricades"],
-            cranes=allocated_resources["cranes"],
-            diversion_route=route_text,
-            diversion_geometry=route_geom,
-            total_cops_required=allocated_resources["total_cops_required"],
-            total_barricades_required=allocated_resources["total_barricades_required"],
-            total_cranes_required=allocated_resources["total_cranes_required"],
-            needs_backup=allocated_resources["needs_backup"],
-            responding_station=real_station_name,
-        ),
-        spatial_impact_geojson=geojson_data,
-    )
+        raise HTTPException(status_code=500, detail=str(e))
