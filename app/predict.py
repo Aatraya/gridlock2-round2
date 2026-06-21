@@ -39,19 +39,14 @@ class ProductionPredictor:
 
     def predict_and_allocate(self, input_data: dict, police_station: str):
         if not self.models:
-            return 45.0, "Medium", calculate_resources(45.0, "Medium", "accident", police_station)
+            print("WARNING: Model not loaded - using fallback")
+            return 60.0, "Medium", calculate_resources(60.0, "Medium", "accident", police_station)
 
         dt = datetime.fromisoformat(
             input_data.get("timestamp", datetime.now(timezone.utc).isoformat())
         )
         hour_val = dt.hour
         day_of_week = dt.weekday()
-
-        requires_road_closure = (
-            1
-            if input_data.get("requires_road_closure") or input_data.get("priority") == "High"
-            else 0
-        )
 
         row_dict = {
             "event_cause": input_data.get("event_cause", "accident"),
@@ -61,15 +56,19 @@ class ProductionPredictor:
             "longitude": float(input_data.get("longitude", 77.5946)),
             "hour": hour_val,
             "day_of_week": day_of_week,
-            "requires_road_closure": requires_road_closure,
+            "requires_road_closure": 1 if input_data.get("priority") == "High" else 0,
         }
 
         X_live = pd.DataFrame([row_dict])
 
+        # Align with model and handle categorical features properly
         if self.feature_order:
             for col in self.feature_order:
                 if col not in X_live.columns:
-                    X_live[col] = 0
+                    if col in ["event_cause", "corridor", "priority"]:
+                        X_live[col] = "Unknown"
+                    else:
+                        X_live[col] = 0
             X_live = X_live[self.feature_order]
 
         cat_features = ["event_cause", "priority", "corridor"]
@@ -80,16 +79,18 @@ class ProductionPredictor:
 
         eval_pool = catboost.Pool(data=X_live, cat_features=cat_features)
 
+        # Ensemble prediction
         log_preds = np.zeros(len(X_live))
         for model in self.models:
             log_preds += model.predict(eval_pool) / len(self.models)
 
         base_duration = max(30.0, float(np.expm1(log_preds)[0]))
 
+        # Post-processing
         final_duration = base_duration
         if input_data.get("priority") == "High":
             final_duration *= 1.4
-        if input_data.get("requires_road_closure") or input_data.get("priority") == "High":
+        if input_data.get("priority") == "High" or input_data.get("requires_road_closure"):
             final_duration *= 1.25
         if input_data.get("event_cause") in [
             "public_event",
@@ -104,6 +105,7 @@ class ProductionPredictor:
 
         final_duration = round(min(final_duration, 480), 1)
 
+        # Severity classification
         if final_duration > 120 or input_data.get("priority") == "High":
             severity = "High"
         elif final_duration > 60:
@@ -116,7 +118,6 @@ class ProductionPredictor:
             priority=input_data.get("priority", "Medium"),
             event_cause=input_data.get("event_cause", "accident"),
             police_station=police_station,
-            corridor=input_data.get("corridor", "Non-corridor"),
         )
 
         return final_duration, severity, allocated_resources
