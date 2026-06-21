@@ -226,4 +226,4 @@ The primary inference endpoint.
 - **Aryan** — Predictive Engine & Machine Learning pipeline
 - **Amogh Gurudatta** — Frontend & UI Integration
 
-_Copyright © 2026. All Rights Reserved._
+_Copyright © 2026. Licensed under the MIT License._
