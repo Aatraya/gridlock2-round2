@@ -93,61 +93,32 @@ def create_impact_geojson(lat: float, lng: float, radius_meters: float) -> dict:
     return mapping(circle_wgs84)
 
 
-def get_osrm_alternative_route(
-    lat: float, lng: float, radius_meters: float
-) -> tuple[str, dict]:
-    """
-    City-agnostic dynamic routing.
-    Calculates a detour path across the impact zone using pure geometric offsets.
-    """
-    # 1 degree of latitude is roughly 111,000 meters.
-    # We set the start/end points 1.5x the radius away from the epicenter.
-    offset_deg = (radius_meters * 1.5) / 111000.0
+# app/geo.py
 
-    start_lat = lat - offset_deg
-    start_lng = lng - offset_deg
-    dest_lat = lat + offset_deg
-    dest_lng = lng + offset_deg
-
-    url = f"http://router.project-osrm.org/route/v1/driving/{start_lng},{start_lat};{dest_lng},{dest_lat}"
+def get_osrm_alternative_route(lat: float, lng: float, radius_meters: float):
+    # Calculate destination offset based on the impact radius/area
+    # OSRM expects: {lng},{lat};{lng},{lat}
+    # Using lat/lng directly as requested by the orchestrator:
+    dest_lat = lat + 0.02
+    dest_lng = lng + 0.02
+    
+    url = f"http://router.project-osrm.org/route/v1/driving/{lng},{lat};{dest_lng},{dest_lat}"
     params = {
         "geometries": "geojson",
         "overview": "full",
-        "steps": "true",  # Extracts real street names
+        "steps": "true",
     }
-
+    
     try:
         res = requests.get(url, params=params, timeout=5)
         if res.status_code == 200:
             data = res.json()
             if data.get("routes"):
-                route = data["routes"][0]
-                route_geojson = route["geometry"]
-
-                # Extract dynamic street names for ANY city
-                street_names = []
-                for leg in route.get("legs", []):
-                    for step in leg.get("steps", []):
-                        name = step.get("name")
-                        if name and name not in street_names and "Unnamed" not in name:
-                            street_names.append(name)
-
-                if street_names:
-                    top_streets = ", ".join(street_names[:3])
-                    return (
-                        f"Dynamic Diversion Active: Reroute traffic via {top_streets}.",
-                        route_geojson,
-                    )
-                return (
-                    "Dynamic Diversion Active: Follow calculated parallel route.",
-                    route_geojson,
-                )
+                route_geojson = data["routes"][0]["geometry"]
+                return "Dynamic Diversion Active: Path calculated.", route_geojson
     except Exception as e:
         print(f"OSRM Error: {e}")
 
-    # Fallback straight line
-    fallback = {
-        "type": "LineString",
-        "coordinates": [[start_lng, start_lat], [dest_lng, dest_lat]],
-    }
+    # Fallback geometry
+    fallback = {"type": "LineString", "coordinates": [[lng, lat], [dest_lng, dest_lat]]}
     return "Follow local traffic police redirection markers.", fallback

@@ -62,6 +62,7 @@ def forecast_event(event: EventRequest):
             "event_cause": event.event_cause,
             "corridor": event.corridor,
             "priority": event.priority,
+            "start_datetime": datetime.now(timezone.utc).isoformat(),
             "hour_of_day": datetime.now(timezone.utc).hour,
             "day_of_week": datetime.now(timezone.utc).weekday(),
             "police_station": real_station_name
