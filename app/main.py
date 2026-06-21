@@ -33,9 +33,11 @@ app.add_middleware(
 
 ml_engine = ProductionPredictor("catboost_ensemble.pkl")
 
+
 @app.get("/health")
 def health():
     return {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}
+
 
 @app.post("/api/v1/forecast", response_model=ForecastResponse)
 def forecast_event(event: EventRequest):
@@ -54,11 +56,12 @@ def forecast_event(event: EventRequest):
         features = {
             "event_cause": event.event_cause,
             "priority": event.priority,
+            "corridor": event.corridor,
             "latitude": event.location.lat,
             "longitude": event.location.lng,
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
-        
+
         predicted_duration, severity, allocated_resources = ml_engine.predict_and_allocate(
             features, real_station_name
         )
