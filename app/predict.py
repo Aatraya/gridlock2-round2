@@ -55,12 +55,15 @@ class ProductionPredictor:
             else 0
         )
 
+        # Extract nested location dictionary if present, otherwise default to empty dict
+        loc = input_data.get("location") if isinstance(input_data.get("location"), dict) else {}
+
         row_dict = {
-            "event_cause": input_data.get("event_cause", "accident"),
+            "event_cause": input_data.get("event_cause") or input_data.get("eventCause", "accident"),
             "priority": input_data.get("priority", "Medium"),
             "corridor": input_data.get("corridor", "Non-corridor"),
-            "latitude": float(input_data.get("latitude", 12.9716)),
-            "longitude": float(input_data.get("longitude", 77.5946)),
+            "latitude": float(loc.get("lat") or input_data.get("latitude") or 12.9716),
+            "longitude": float(loc.get("lng") or input_data.get("longitude") or 77.5946),
             "hour": hour_val,
             "day_of_week": day_of_week,
             "requires_road_closure": requires_road_closure,
