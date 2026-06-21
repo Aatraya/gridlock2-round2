@@ -41,11 +41,11 @@ def get_responding_station(lat: float, lng: float) -> str:
 
             # Check for the custom BTP schema attribute first
             if "PS_BOUNDName" in row and pd.notna(row["PS_BOUNDName"]):
-                return str(row["PS_BOUNDName"]).title() + " Traffic PS"
+                return str(row["PS_BOUNDName"]).strip()
 
             # Fallback to standard KML Name tag
             if "Name" in row and pd.notna(row["Name"]):
-                return str(row["Name"]).title() + " Traffic PS"
+                return str(row["Name"]).strip()
 
             return "Local Traffic Station"
 
@@ -95,6 +95,7 @@ def create_impact_geojson(lat: float, lng: float, radius_meters: float) -> dict:
 
 # app/geo.py
 
+
 def get_osrm_alternative_route(lat: float, lng: float, radius_meters: float):
     # Scale the diversion path to match the event's actual impact radius.
     # 1 degree ≈ 111,000 m; we route from 1.5× radius away to 1.5× radius ahead.
@@ -102,8 +103,8 @@ def get_osrm_alternative_route(lat: float, lng: float, radius_meters: float):
 
     start_lat = lat - offset_deg
     start_lng = lng - offset_deg
-    dest_lat  = lat + offset_deg
-    dest_lng  = lng + offset_deg
+    dest_lat = lat + offset_deg
+    dest_lng = lng + offset_deg
 
     url = f"http://router.project-osrm.org/route/v1/driving/{start_lng},{start_lat};{dest_lng},{dest_lat}"
     params = {
@@ -134,10 +135,16 @@ def get_osrm_alternative_route(lat: float, lng: float, radius_meters: float):
                         f"Dynamic Diversion Active: Reroute traffic via {top_streets}.",
                         route_geojson,
                     )
-                return ("Dynamic Diversion Active: Follow calculated parallel route.", route_geojson)
+                return (
+                    "Dynamic Diversion Active: Follow calculated parallel route.",
+                    route_geojson,
+                )
     except Exception as e:
         print(f"OSRM Error: {e}")
 
     # Fallback straight line
-    fallback = {"type": "LineString", "coordinates": [[start_lng, start_lat], [dest_lng, dest_lat]]}
+    fallback = {
+        "type": "LineString",
+        "coordinates": [[start_lng, start_lat], [dest_lng, dest_lat]],
+    }
     return "Follow local traffic police redirection markers.", fallback
