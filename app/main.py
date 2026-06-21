@@ -74,7 +74,7 @@ def forecast_event(event: EventRequest):
             requires_road_closure=event.requires_road_closure
         )
 
-        predicted_duration = prediction_results.get("predicted_duration_mins", 60.0)
+        predicted_duration = prediction_results.get("predicted_duration_minutes", 60.0)
         allocated_resources = prediction_results.get("allocated_resources", {})
         severity = allocated_resources.get("severity", "MODERATE")
 
