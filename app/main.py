@@ -84,9 +84,9 @@ def forecast_event(event: EventRequest):
 
         # 5. Dynamic OSRM Routing Layer
         route_text, route_geom = get_osrm_alternative_route(
-            start_lat=event.location.lat,
-            start_lng=event.location.lng,
-            corridor=event.corridor,
+            event.location.lat,
+            event.location.lng,
+            radius,
         )
 
         # 6. Package everything into the verified structure contract
