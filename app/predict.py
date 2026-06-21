@@ -48,6 +48,13 @@ class ProductionPredictor:
         hour_val = dt.hour
         day_of_week = dt.weekday()
 
+        # Correctly evaluate and pre-calculate road closure state as an integer (0 or 1)
+        requires_road_closure = (
+            1
+            if input_data.get("requires_road_closure") or input_data.get("priority") == "High"
+            else 0
+        )
+
         row_dict = {
             "event_cause": input_data.get("event_cause", "accident"),
             "priority": input_data.get("priority", "Medium"),
@@ -56,7 +63,7 @@ class ProductionPredictor:
             "longitude": float(input_data.get("longitude", 77.5946)),
             "hour": hour_val,
             "day_of_week": day_of_week,
-            "requires_road_closure": 1 if input_data.get("priority") == "High" else 0,
+            "requires_road_closure": requires_road_closure,
         }
 
         X_live = pd.DataFrame([row_dict])
@@ -86,11 +93,11 @@ class ProductionPredictor:
 
         base_duration = max(30.0, float(np.expm1(log_preds)[0]))
 
-        # Post-processing
+        # Post-processing adjustments
         final_duration = base_duration
         if input_data.get("priority") == "High":
             final_duration *= 1.4
-        if input_data.get("priority") == "High" or input_data.get("requires_road_closure"):
+        if requires_road_closure:
             final_duration *= 1.25
         if input_data.get("event_cause") in [
             "public_event",
@@ -118,6 +125,7 @@ class ProductionPredictor:
             priority=input_data.get("priority", "Medium"),
             event_cause=input_data.get("event_cause", "accident"),
             police_station=police_station,
+            corridor=input_data.get("corridor", "Non-corridor"),
         )
 
         return final_duration, severity, allocated_resources
