@@ -33,32 +33,32 @@ MAX_STATION_CRANES = 0
 def calculate_resources(duration_mins, priority, event_cause, requires_road_closure, corridor, police_station):
     # --- 1. Base requirements ---
     cops = 2
-    barricades = 5
+    barricades = 2
     cranes = 0
 
     if duration_mins > 120:
         cops += 4
-        barricades += 15
+        barricades += 8
     elif duration_mins > 60:
         cops += 2
-        barricades += 5
+        barricades += 3
 
     # --- 2. Modifiers ---
     if priority == "High":
         cops += 4
-        barricades += 10
+        barricades += 5
 
     if event_cause in ["accident", "vehicle_breakdown", "tree_fall"]:
         cops += 2
         cranes += 1
 
     if requires_road_closure:
-        barricades += 10
+        barricades += 8
         cops += 2
 
     # --- 3. Safety Bounds ---
     cops = min(cops, 25)
-    barricades = min(barricades, 60)
+    barricades = min(barricades, 30)
     cranes = min(cranes, 3)
 
     # --- 4. Severity Tagging ---
