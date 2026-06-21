@@ -9,8 +9,6 @@ from app.geo import (
     get_osrm_alternative_route,
     get_responding_station,
 )
-
-# Import schemas and models directly from models.py
 from app.models import (
     DeploymentModel,
     EventRequest,
@@ -19,14 +17,12 @@ from app.models import (
 )
 from app.predict import ProductionPredictor
 
-# Initialize the main FastAPI application instance
 app = FastAPI(
     title="BTP Traffic Command API",
     description="Bengaluru Traffic Police - Predictive Event Management System",
     version="1.0.0",
 )
 
-# Configure Cross-Origin Resource Sharing (CORS) middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -35,62 +31,45 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Load the CatBoost model pipeline into memory at application startup
 ml_engine = ProductionPredictor("catboost_ensemble.pkl")
-
 
 @app.get("/health")
 def health():
-    """Lightweight diagnostic health-check endpoint."""
-    return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}
-
+    return {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}
 
 @app.post("/api/v1/forecast", response_model=ForecastResponse)
 def forecast_event(event: EventRequest):
-    """Primary orchestrator endpoint."""
     try:
-        # 1. Resolve Jurisdiction via KML if AUTO_ASSIGNED
-        # Using .strip() to clean hidden newlines and spaces from KML raw text
-        if event.police_station == "AUTO_ASSIGNED" or not event.police_station:
-            real_station_name = get_responding_station(event.location.lat, event.location.lng).strip()
+        # 1. Resolve Jurisdiction via Point-In-Polygon KML Search
+        if not event.police_station or event.police_station.strip().upper() == "AUTO_ASSIGNED":
+            real_station_name = get_responding_station(event.location.lat, event.location.lng)
         else:
             real_station_name = event.police_station.strip()
 
-        # 2. Build model payload map
-        input_payload = {
-            "event_type": event.event_type,
-            "event_cause": event.event_cause,
-            "corridor": event.corridor,
-            "priority": event.priority,
-            "start_datetime": datetime.now(timezone.utc).isoformat(),
-            "hour_of_day": datetime.now(timezone.utc).hour,
-            "day_of_week": datetime.now(timezone.utc).weekday(),
-            "police_station": real_station_name
-        }
-
-        # 3. RUN PREDICTIVE FRAMEWORK WITH SPATIAL JURISDICTION
-        prediction_results = ml_engine.predict_and_allocate(
-            input_data=input_payload,
-            police_station=real_station_name,  # Passes clean jurisdiction string to rules engine
-            requires_road_closure=event.requires_road_closure
-        )
-
-        predicted_duration = prediction_results.get("predicted_duration_minutes", 60.0)
-        allocated_resources = prediction_results.get("allocated_resources", {})
-        severity = allocated_resources.get("severity", "MODERATE")
-
-        # 4. Geospatial impact buffer
-        radius = get_impact_radius_meters(event.event_cause, event.requires_road_closure)
+        # 2. Extract Predictive Parameters and Evaluation Radius
+        radius = get_impact_radius_meters(event.event_cause, event.priority)
         geojson_data = create_impact_geojson(event.location.lat, event.location.lng, radius)
 
-        # 5. Dynamic OSRM Routing Layer
+        # 3. Call Machine Learning Prediction Engine and Resource Manager
+        features = {
+            "event_cause": event.event_cause,
+            "priority": event.priority,
+            "latitude": event.location.lat,
+            "longitude": event.location.lng,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+        predicted_duration, severity, allocated_resources = ml_engine.predict_and_allocate(
+            features, real_station_name
+        )
+
+        # 4. Compute Dynamic OSRM Route Geometry
         route_text, route_geom = get_osrm_alternative_route(
             event.location.lat,
             event.location.lng,
             radius,
         )
 
-        # 6. Package everything into the verified structure contract
         return ForecastResponse(
             event_id=f"BTP-{uuid.uuid4().hex[:6].upper()}",
             cause=event.event_cause,

@@ -33,35 +33,41 @@ class ProductionPredictor:
             print(f"Model load failed: {e}")
             self.models = []
 
-    def predict_and_allocate(self, input_data: dict, requires_road_closure: bool = False, police_station: str = "Unknown") -> dict:
+    def predict_and_allocate(self, input_data: dict, police_station: str):
+        # Fallback tracking if ML layers are missing execution blocks
         if not self.models:
-            fallback = 135.0 if input_data.get("priority") == "High" else 60.0
-            return self._package(fallback, input_data, requires_road_closure, police_station)
+            return 45.0, "Medium", calculate_resources(45.0, "Medium", "accident", police_station)
 
-        # Model prediction
-        try:
-            ts = pd.to_datetime(input_data.get("start_datetime"))
-            hour_val = ts.hour
-            day_val = ts.dayofweek
-        except:
-            now = datetime.now(timezone.utc)
-            hour_val = now.hour
-            day_val = now.weekday()
+        # Parse live datetime metrics
+        dt = datetime.fromisoformat(input_data.get("timestamp", datetime.now(timezone.utc).isoformat()))
+        hour_val = dt.hour
+        day_of_week = dt.weekday()
 
-        full_row = {
-            "event_cause": str(input_data.get("event_cause", "unknown")),
-            "corridor": str(input_data.get("corridor", "Non-corridor")),
-            "priority": str(input_data.get("priority", "Medium")),
-            "hour_of_day": hour_val,
-            "day_of_week": day_val,
+        requires_road_closure = 1 if input_data.get("priority") == "High" else 0
+
+        # Construct vector for CatBoost evaluation pool matrix
+        row_dict = {
+            "event_cause": input_data.get("event_cause", "accident"),
+            "priority": input_data.get("priority", "Medium"),
+            "latitude": float(input_data.get("latitude", 12.9716)),
+            "longitude": float(input_data.get("longitude", 77.5946)),
+            "hour": hour_val,
+            "day_of_week": day_of_week,
+            "requires_road_closure": requires_road_closure
         }
 
-        ordered_cols = self.feature_order or list(full_row.keys())
-        X_live = pd.DataFrame([{col: full_row[col] for col in ordered_cols}])
+        X_live = pd.DataFrame([row_dict])
+        if self.feature_order:
+            for col in self.feature_order:
+                if col not in X_live.columns:
+                    X_live[col] = 0
+            X_live = X_live[self.feature_order]
 
-        cat_features = [c for c in ["event_cause", "corridor", "priority"] if c in ordered_cols]
-        for col in cat_features:
-            X_live[col] = X_live[col].astype(str)
+        cat_features = ["event_cause", "priority"]
+        cat_features = [c for c in cat_features if c in X_live.columns]
+        
+        for c in cat_features:
+            X_live[c] = X_live[c].astype(str)
 
         eval_pool = catboost.Pool(data=X_live, cat_features=cat_features)
 
@@ -71,7 +77,7 @@ class ProductionPredictor:
 
         base_duration = max(30.0, float(np.expm1(log_preds)[0]))
 
-        # Smart adjustment for demo impact
+        # Business adjustments for situational scaling
         final_duration = base_duration
         if input_data.get("priority") == "High":
             final_duration *= 1.4
@@ -79,23 +85,24 @@ class ProductionPredictor:
             final_duration *= 1.25
         if input_data.get("event_cause") in ["public_event", "protest", "vip_movement", "water_logging"]:
             final_duration *= 1.45
-        if hour_val in [7,8,9,17,18,19,20]:
+        if hour_val in [7, 8, 9, 17, 18, 19, 20]:
             final_duration *= 1.25
 
         final_duration = round(min(final_duration, 480), 1)
 
-        return self._package(final_duration, input_data, requires_road_closure, police_station)
+        # Classify categorical severity profile
+        if final_duration > 120 or input_data.get("priority") == "High":
+            severity = "High"
+        elif final_duration > 60:
+            severity = "Medium"
+        else:
+            severity = "Low"
 
-    def _package(self, duration, input_data, requires_road_closure, police_station):
-        resources = calculate_resources(
-            duration_mins=duration,
+        allocated_resources = calculate_resources(
+            duration_mins=final_duration,
             priority=input_data.get("priority", "Medium"),
-            event_cause=input_data.get("event_cause", "unknown"),
-            requires_road_closure=requires_road_closure,
-            corridor=input_data.get("corridor", "Non-corridor"),
+            event_cause=input_data.get("event_cause", "accident"),
             police_station=police_station
         )
-        return {
-            "predicted_duration_minutes": duration,
-            "allocated_resources": resources
-        }
+
+        return final_duration, severity, allocated_resources
