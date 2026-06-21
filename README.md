@@ -13,7 +13,7 @@
 
 ## 📖 Executive Summary
 
-The **BTP Predictive Command Center** API serves as the intelligent core for managing traffic-affecting events (e.g., accidents, construction, tree falls, rallies) across Bengaluru.
+The **BTP Predictive Command Center** API serves as the intelligent core for the [Frontend Dashboard](https://github.com/Amogh-Gurudatta/Flipkart-Gridlock-Hackathon-2-Round-2-Frontend), managing traffic-affecting events (e.g., accidents, construction, tree falls, rallies) across Bengaluru.
 
 By synthesizing historical traffic patterns, real-time spatial data, and expert system heuristics, the API provides:
 
