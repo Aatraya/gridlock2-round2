@@ -76,6 +76,8 @@ def forecast_event(event: EventRequest):
         return ForecastResponse(
             event_id=f"BTP-{uuid.uuid4().hex[:6].upper()}",
             cause=event.event_cause,
+            priority=event.priority,
+            corridor=event.corridor,
             location=event.location,
             predictions=PredictionsModel(
                 estimated_duration_mins=predicted_duration, severity_level=severity

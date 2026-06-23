@@ -37,6 +37,8 @@ class DeploymentModel(BaseModel):
 class ForecastResponse(BaseModel):
     event_id: str
     cause: str
+    priority: str
+    corridor: str
     location: LocationModel
     predictions: PredictionsModel
     deployment_recommendation: DeploymentModel
